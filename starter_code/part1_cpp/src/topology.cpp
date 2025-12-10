@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <map>
 #include <vector>
-
+using namespace std;
 /**
  * @brief Edge structure for uniqueness
  */
@@ -53,6 +53,26 @@ struct EdgeInfo {
 TopologyInfo* build_topology(const Mesh* mesh) {
     if (!mesh) return NULL;
 
+    map<Edge, EdgeInfo> edge_map;
+
+    for(int face_idx = 0; face_idx < mesh->num_triangles; face_idx++) {
+        int v0 = mesh->triangles[3 * face_idx + 0];
+        int v1 = mesh->triangles[3 * face_idx + 1];
+        int v2 = mesh->triangles[3 * face_idx + 2];
+
+        Edge edges[3] = { Edge(v0, v1), Edge(v1, v2), Edge(v2, v0) };
+
+        for(int e = 0; e < 3; e++) {
+            Edge& edge = edges[e];
+            
+            if(edge_map.find(edge) == edge_map.end()) {
+                edge_map[edge].face0 = face_idx;
+            } else {
+                edge_map[edge].face1 = face_idx;
+            }
+        }
+    }
+
     // TODO: Implement topology building
     //
     // Steps:
@@ -70,6 +90,8 @@ TopologyInfo* build_topology(const Mesh* mesh) {
     //
     // See reference/topology_example.cpp for complete example
 
+
+
     TopologyInfo* topo = (TopologyInfo*)malloc(sizeof(TopologyInfo));
 
     // Initialize to safe defaults (prevents crashes before implementation)
@@ -78,6 +100,27 @@ TopologyInfo* build_topology(const Mesh* mesh) {
     topo->edge_faces = NULL;
 
     // TODO: Your implementation here
+    int num_edges = edge_map.size();
+    topo->num_edges = num_edges;
+
+    topo->edges = (int*)malloc(sizeof(int) * 2 * num_edges);
+    topo->edge_faces = (int*)malloc(sizeof(int) * 2 * num_edges);
+
+    int edge_idx = 0;
+    for(auto& pair : edge_map) {
+        Edge edge = pair.first;
+        EdgeInfo info = pair.second;
+
+        topo->edges[2 * edge_idx + 0] = edge.v0;
+        topo->edges[2 * edge_idx + 1] = edge.v1;
+
+        topo->edge_faces[2 * edge_idx + 0] = info.face0;
+        topo->edge_faces[2 * edge_idx + 1] = info.face1;
+
+        edge_idx++;
+    }
+
+    validate_topology(mesh, topo);
 
     return topo;
 }
