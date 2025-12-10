@@ -21,7 +21,12 @@
 #include <vector>
 #include <set>
 #include <queue>
-
+#include <unordered_map>
+#include <algorithm>
+using namespace std;
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 /**
  * @brief Compute angular defect at a vertex
  *
@@ -51,8 +56,18 @@ static float compute_angular_defect(const Mesh* mesh, int vertex_idx) {
     float angle_sum = 0.0f;
 
     // YOUR CODE HERE
+    for(int face_idx = 0; face_idx < mesh->num_triangles; face_idx++) {
+        int v0 = mesh->triangles[3 * face_idx + 0];
+        int v1 = mesh->triangles[3 * face_idx + 1];
+        int v2 = mesh->triangles[3 * face_idx + 2];
+        
+        if(v0 == vertex_idx || v1 == vertex_idx || v2 == vertex_idx) {
+            float angle = compute_vertex_angle_in_triangle(mesh, face_idx, vertex_idx);
+            angle_sum += angle;
+        }
+    }
 
-    return 2.0f * M_PI - angle_sum;
+    return static_cast<float>(2.0f * M_PI - angle_sum);
 }
 
 /**
@@ -64,8 +79,46 @@ static std::vector<int> get_vertex_edges(const TopologyInfo* topo, int vertex_id
     // TODO: Iterate through all edges, add those touching vertex_idx
 
     // YOUR CODE HERE
+    for(int idx = 0; idx < topo->num_edges; idx++) {
+        int v0 = topo->edges[2 * idx + 0];
+        int v1 = topo->edges[2 * idx + 1];
+
+        if(v0 == vertex_idx || v1 == vertex_idx) {
+            edges.push_back(idx);
+        }
+    }
 
     return edges;
+}
+
+long long make_edge_key(int f0, int f1) {
+    if(f0 > f1) {
+        swap(f0, f1);
+    }
+
+    return (static_cast<long long>(f0) << 32) | static_cast<long long>(f1);
+}
+
+
+struct SeamCandidate {
+    int edge_idx;
+    float score;
+};
+
+
+int find_parent(int v, vector<int>& parent) {
+    if(parent[v] == v) {
+        return v;
+    }
+    return parent[v] = find_parent(parent[v], parent);
+}
+
+void unite(int a, int b, vector<int>& parent) {
+    int pa = find_parent(a, parent);
+    int pb = find_parent(b, parent);
+    if(pa != pb) {
+        parent[pa] = pb;
+    }
 }
 
 int* detect_seams(const Mesh* mesh,
@@ -73,6 +126,8 @@ int* detect_seams(const Mesh* mesh,
                   float angle_threshold,
                   int* num_seams_out) {
     if (!mesh || !topo || !num_seams_out) return NULL;
+    float angle_threshold_redians =  angle_threshold * static_cast<float>(M_PI)/180.0f;              
+    
 
     // TODO: Implement seam detection
     //
@@ -103,11 +158,122 @@ int* detect_seams(const Mesh* mesh,
     //   Cylinder: 1-2 seams
 
     std::set<int> seam_candidates;
+    int boundry_edges_count = 0;
+    // STEP 1: Build dual graph
+    int F = mesh->num_triangles;
+    if(F == 0) {
+        *num_seams_out = 0;
+        return NULL;
+    }
+    vector<vector<int>> dual_graph(F);
+    unordered_map<long long, int> face_edge_map;
+    for(int edge_idx = 0; edge_idx < topo->num_edges; edge_idx++) {
+        int f0 = topo->edge_faces[2 * edge_idx + 0];
+        int f1 = topo->edge_faces[2 * edge_idx + 1];
 
-    // YOUR CODE HERE
+        if(f1 >= 0 && f0 >=0) {
+            dual_graph[f0].push_back(f1);
+            dual_graph[f1].push_back(f0);
+            long long edge_key = make_edge_key(f0, f1);
+            face_edge_map[edge_key] = edge_idx;
+        } 
+        if(f1 == -1 || f0 == -1) {
+            boundry_edges_count++;
+        }
 
+    }
+    // printf("Dual graph built with %d faces and %d boundary edges\n", F, boundry_edges_count);
+    // STEP 2: Spanning tree via BFS
+    set<int> tree_edges;
+    vector<bool> visited(F, false);
+    queue<int> q;
+    // int components = 0;
+    for(int start_face = 0; start_face < F; start_face++) {
+        if(visited[start_face]) continue;
+        // components++;
+        q.push(start_face);
+        visited[start_face] = true;
+
+        while(!q.empty()) {
+            int current_face = q.front();
+            q.pop();
+
+            for(int neighbor_face : dual_graph[current_face]) {
+                if(!visited[neighbor_face]) {
+                    visited[neighbor_face] = true;
+                    q.push(neighbor_face);
+
+                    long long edge_key = make_edge_key(current_face, neighbor_face);
+
+                    if(face_edge_map.find(edge_key) != face_edge_map.end()) {
+                        int edge_idx = face_edge_map[edge_key];
+                        tree_edges.insert(edge_idx);
+                    }
+                }
+            }
+        }
+    }
+
+    // printf("Spanning tree completed with %d components\n", components);
+    vector<float> vertex_defect(mesh->num_vertices, 0.0f);
+    for(int v_idx = 0; v_idx < mesh->num_vertices; v_idx++) {
+        vertex_defect[v_idx] = compute_angular_defect(mesh, v_idx);
+    }
+
+    vector<SeamCandidate> candidates;
+    seam_candidates.clear();
+
+    for(int edge_idx = 0; edge_idx < topo->num_edges; edge_idx++) {
+        int f0 = topo->edge_faces[2 * edge_idx + 0];
+        int f1 = topo->edge_faces[2 * edge_idx + 1];
+
+        if(f1 == -1 || f0 == -1) continue; // Skip boundary edges
+
+        if(tree_edges.find(edge_idx) != tree_edges.end()) continue;
+
+        int v0 = topo->edges[2 * edge_idx + 0];
+        int v1 = topo->edges[2 * edge_idx + 1];
+
+        float score = max(fabsf(vertex_defect[v0]) , fabsf(vertex_defect[v1]));
+        candidates.push_back({edge_idx, score});
+    }
+
+    // sort candidates by score descending
+    sort(candidates.begin(), candidates.end(), [](const SeamCandidate& a, const SeamCandidate& b) {
+        return a.score > b.score;
+    });
+
+    vector<int> parent(F);
+    for(int i = 0; i < F; i++) {
+        parent[i] = i;
+    }
+
+    for(auto& candidate : candidates) {
+        int edge_idx = candidate.edge_idx;
+        // if(candidate.score < angle_threshold_redians) {
+        //     continue;
+        // }
+        int f0 = topo->edge_faces[2 * edge_idx + 0];
+        int f1 = topo->edge_faces[2 * edge_idx + 1];
+
+        int pa = find_parent(f0, parent);
+        int pb = find_parent(f1, parent);
+
+        if(pa == pb) {
+            // already connected
+            seam_candidates.insert(edge_idx);
+        } else {
+            unite(f0, f1, parent);
+        }
+    }
+
+    printf("Total seam candidates selected: %zu\n", seam_candidates.size());
+
+    // STEP 5: 
     // Convert to array
-    *num_seams_out = seam_candidates.size();
+    // *num_seams_out = seam_candidates.size();
+    
+    *num_seams_out = static_cast<int>(seam_candidates.size());
     int* seams = (int*)malloc(*num_seams_out * sizeof(int));
 
     int idx = 0;
