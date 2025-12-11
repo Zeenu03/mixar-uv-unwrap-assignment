@@ -71,7 +71,7 @@ int find_boundary_vertices(const Mesh* mesh,
         (*boundary_out)[idx++] = v;
     }
 
-    printf("  Found %d boundary vertices\n", num_boundary);
+    // printf("  Found %d boundary vertices\n", num_boundary);
     return num_boundary;
 }
 
@@ -240,7 +240,7 @@ float* lscm_parameterize(const Mesh* mesh,
                          int num_faces) {
     if (!mesh || !face_indices || num_faces == 0) return NULL;
 
-    printf("LSCM parameterizing %d faces...\n", num_faces);
+    // printf("LSCM parameterizing %d faces...\n", num_faces);
 
     // STEP 1: Build local vertex mapping
     std::map<int, int> global_to_local;
@@ -267,10 +267,10 @@ float* lscm_parameterize(const Mesh* mesh,
     }
     
     int n = local_to_global.size();
-    printf("  Island has %d vertices\n", n);
+    // printf("  Island has %d vertices\n", n);
 
     if (n < 3) {
-        fprintf(stderr, "LSCM: Island too small (%d vertices)\n", n);
+        // fprintf(stderr, "LSCM: Island too small (%d vertices)\n", n);
         return NULL;
     }
 
@@ -296,7 +296,7 @@ float* lscm_parameterize(const Mesh* mesh,
         add_triangle_contribution(triplets, v0_local, v1_local, v2_local, p0, p1, p2);
     }
     
-    printf("  Built matrix with %zu entries\n", triplets.size());
+    // printf("  Built matrix with %zu entries\n", triplets.size());
 
     // STEP 3: Find vertices to pin
     int* boundary_verts = NULL;
@@ -317,8 +317,8 @@ float* lscm_parameterize(const Mesh* mesh,
     int pin1_local = global_to_local[pin1_global];
     int pin2_local = global_to_local[pin2_global];
     
-    printf("  Pinning vertices %d (local %d) and %d (local %d)\n", 
-           pin1_global, pin1_local, pin2_global, pin2_local);
+    // printf("  Pinning vertices %d (local %d) and %d (local %d)\n", 
+    //        pin1_global, pin1_local, pin2_global, pin2_local);
 
     // STEP 4: Set boundary conditions
     // Clear rows for pinned vertices and set constraints
@@ -355,24 +355,24 @@ float* lscm_parameterize(const Mesh* mesh,
     b[2*pin2_local+1] = 0.0;   // v = 0
 
     // STEP 5: Solve linear system
-    printf("  Solving %dx%d sparse system...\n", 2*n, 2*n);
+    // printf("  Solving %dx%d sparse system...\n", 2*n, 2*n);
     
     Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
     solver.compute(A);
     
     if (solver.info() != Eigen::Success) {
-        fprintf(stderr, "LSCM: Matrix decomposition failed\n");
+        // fprintf(stderr, "LSCM: Matrix decomposition failed\n");
         return NULL;
     }
     
     Eigen::VectorXd x = solver.solve(b);
     
     if (solver.info() != Eigen::Success) {
-        fprintf(stderr, "LSCM: Solve failed\n");
+        // fprintf(stderr, "LSCM: Solve failed\n");
         return NULL;
     }
     
-    printf("  Solve completed\n");
+    // printf("  Solve completed\n");
 
     // STEP 6: Extract UVs
     float* uvs = (float*)malloc(n * 2 * sizeof(float));
@@ -385,6 +385,6 @@ float* lscm_parameterize(const Mesh* mesh,
     // STEP 7: Normalize to [0,1]²
     normalize_uvs_to_unit_square(uvs, n);
 
-    printf("  LSCM completed successfully\n");
+    // printf("  LSCM completed successfully\n");
     return uvs;
 }
