@@ -220,54 +220,83 @@ int* detect_seams(const Mesh* mesh,
         vertex_defect[v_idx] = compute_angular_defect(mesh, v_idx);
     }
 
-    vector<SeamCandidate> candidates;
+    // STEP 4: Initial seam candidates = non-tree interior edges with high angular defect
     seam_candidates.clear();
-
+    vector<int> all_non_tree_edges; // Backup for smooth surfaces
+    vector<pair<int, float>> defect_edges; // Store edges with their defects for open meshes
+    
+    // Adjust threshold based on whether mesh is open or closed
+    // Open meshes (with boundaries) already have natural cuts, so be more conservative
+    float threshold_multiplier = (boundry_edges_count > 0) ? 3.5f : 0.8f;
+    
     for(int edge_idx = 0; edge_idx < topo->num_edges; edge_idx++) {
         int f0 = topo->edge_faces[2 * edge_idx + 0];
         int f1 = topo->edge_faces[2 * edge_idx + 1];
 
         if(f1 == -1 || f0 == -1) continue; // Skip boundary edges
 
-        if(tree_edges.find(edge_idx) != tree_edges.end()) continue;
-
-        int v0 = topo->edges[2 * edge_idx + 0];
-        int v1 = topo->edges[2 * edge_idx + 1];
-
-        float score = max(fabsf(vertex_defect[v0]) , fabsf(vertex_defect[v1]));
-        candidates.push_back({edge_idx, score});
+        if(tree_edges.find(edge_idx) == tree_edges.end()) {
+            // Not in tree = seam candidate
+            // Check if either endpoint has significant angular defect
+            all_non_tree_edges.push_back(edge_idx);
+            
+            int v0 = topo->edges[2 * edge_idx + 0];
+            int v1 = topo->edges[2 * edge_idx + 1];
+            
+            float max_defect = max(fabsf(vertex_defect[v0]), fabsf(vertex_defect[v1]));
+            
+            // Only add if angular defect is significant
+            if (max_defect > threshold_multiplier * angle_threshold_redians) {
+                if (boundry_edges_count > 0) {
+                    // For open meshes, collect edges with defects for ranking
+                    defect_edges.push_back(make_pair(edge_idx, max_defect));
+                } else {
+                    // For closed meshes, add all high-defect edges
+                    seam_candidates.insert(edge_idx);
+                }
+            }
+        }
     }
-
-    // sort candidates by score descending
-    sort(candidates.begin(), candidates.end(), [](const SeamCandidate& a, const SeamCandidate& b) {
-        return a.score > b.score;
-    });
-
-    vector<int> parent(F);
-    for(int i = 0; i < F; i++) {
-        parent[i] = i;
-    }
-
-    for(auto& candidate : candidates) {
-        int edge_idx = candidate.edge_idx;
-        // if(candidate.score < angle_threshold_redians) {
-        //     continue;
-        // }
-        int f0 = topo->edge_faces[2 * edge_idx + 0];
-        int f1 = topo->edge_faces[2 * edge_idx + 1];
-
-        int pa = find_parent(f0, parent);
-        int pb = find_parent(f1, parent);
-
-        if(pa == pb) {
-            // already connected
-            seam_candidates.insert(edge_idx);
-        } else {
-            unite(f0, f1, parent);
+    
+    // For open meshes, limit to top 3 highest-defect edges
+    if (boundry_edges_count > 0 && !defect_edges.empty()) {
+        printf("  Open mesh detected - found %d high-defect edges:\n", (int)defect_edges.size());
+        printf("  Threshold multiplier: %.2f, angle_threshold: %.4f rad (%.1f°)\n", 
+               threshold_multiplier, angle_threshold_redians, angle_threshold);
+        printf("  Effective threshold: %.4f rad\n", threshold_multiplier * angle_threshold_redians);
+        
+        sort(defect_edges.begin(), defect_edges.end(), 
+             [](const pair<int, float>& a, const pair<int, float>& b) {
+                 return a.second > b.second; // Sort by defect descending
+             });
+        
+        for (size_t i = 0; i < defect_edges.size(); i++) {
+            printf("    Edge %d: defect = %.4f rad (%.2f°) %s\n", 
+                   defect_edges[i].first, 
+                   defect_edges[i].second,
+                   defect_edges[i].second * 180.0f / M_PI,
+                   (i < 3) ? "[SELECTED]" : "[SKIPPED]");
+        }
+        
+        int max_seams_open = min(3, (int)defect_edges.size());
+        for (int i = 0; i < max_seams_open; i++) {
+            seam_candidates.insert(defect_edges[i].first);
         }
     }
 
+    // Fallback for smooth surfaces: add at least 1 seam to prevent severe distortion
+    if (seam_candidates.empty() && !all_non_tree_edges.empty()) {
+        // Add the first few non-tree edges as seams
+        int num_fallback_seams = min((int)all_non_tree_edges.size(), max(1, F / 40));
+        for (int i = 0; i < num_fallback_seams; i++) {
+            seam_candidates.insert(all_non_tree_edges[i]);
+        }
+        printf("  (Added %d fallback seams for smooth surface)\n", num_fallback_seams);
+    }
+
     printf("Total seam candidates selected: %zu\n", seam_candidates.size());
+
+
 
     // STEP 5: 
     // Convert to array
