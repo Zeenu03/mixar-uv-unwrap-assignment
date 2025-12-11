@@ -37,19 +37,9 @@ static int* extract_islands(const Mesh* mesh,
                            const int* seam_edges,
                            int num_seams,
                            int* num_islands_out) {
-    // TODO: Implement island extraction
-    //
-    // Algorithm:
-    // 1. Build face adjacency graph (faces connected by non-seam edges)
-    // 2. Run connected components (BFS or DFS)
-    // 3. Assign island ID to each face
-    //
-    // Steps:
-    // 1. Create std::set<int> of seam edge indices for fast lookup
-    // 2. Build adjacency list for faces (only through non-seam edges)
-    // 3. Run BFS/DFS to find connected components
-    // 4. Return array of island IDs (one per face)
-
+    printf("Extracting islands from %d faces with %d seams...\n", 
+           mesh->num_triangles, num_seams);
+    
     int* face_island_ids = (int*)malloc(mesh->num_triangles * sizeof(int));
 
     // Initialize all to -1 (unvisited)
