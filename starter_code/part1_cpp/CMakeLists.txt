@@ -35,10 +35,20 @@ set(SOURCES
 
 # Main library
 add_library(uvunwrap SHARED ${SOURCES})
-
+if(MSVC)
+  set_target_properties(uvunwrap PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 # Test executable
 add_executable(test_unwrap tests/test_unwrap.cpp)
 target_link_libraries(test_unwrap uvunwrap)
+
+# LSCM direct test executable
+add_executable(test_lscm_direct tests/test_lscm_direct.cpp)
+target_link_libraries(test_lscm_direct uvunwrap)
+
+# LSCM performance benchmark
+add_executable(benchmark_lscm_performance tests/benchmark_lscm_performance.cpp)
+target_link_libraries(benchmark_lscm_performance uvunwrap)
 
 # Enable warnings
 if(MSVC)
