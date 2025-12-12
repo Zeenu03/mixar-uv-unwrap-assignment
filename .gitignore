@@ -50,3 +50,6 @@ Makefile
 output/
 *.log
 *.tmp
+
+# add the third party libraries folder
+third_party/
